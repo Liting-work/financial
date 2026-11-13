@@ -10,6 +10,21 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 export const LIST_PAGES = Math.max(1, Math.min(Number(process.env.LIST_PAGES) || 5, 10))
 
+/** 列表默认时间口径：最近 30 天提交的单据。 */
+export function getRecentSubmittedWindow(now = new Date()) {
+  const dayKey = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+  const todayStart = new Date(`${dayKey}T00:00:00+08:00`).getTime()
+  return {
+    submittedAtStart: todayStart - 30 * 86400000,
+    submittedAtEnd: todayStart + 86400000,
+  }
+}
+
 export const STATUS_TEXT = {
   APPROVING: '审批中',
   AUDITING: '审核中',
@@ -29,8 +44,32 @@ const TYPE_ALIASES = {
   供应商付款单: '供应商付款',
 }
 
-// 仅保留最近一次实时列表，用于详情请求定位 formType；不写磁盘，不作为看板展示缓存。
-let latestLiveForms = null
+export const PENDING_FORM_STATUSES = ['APPROVING', 'AUDITING', 'SIGNING', 'SETTLEMENT']
+
+const ALLOWED_STATUSES = new Set(Object.keys(STATUS_TEXT))
+
+function uniqueList(values) {
+  return [...new Set(values.filter(Boolean))]
+}
+
+function cleanApproverName(name) {
+  return String(name)
+    .replace(/（未授权[^）]*）/gu, '')
+    .trim()
+}
+
+function pendingApproversFromLogs(logs = []) {
+  const pending = logs.filter((node) => node.state === 'pending')
+  const approvers = uniqueList(
+    pending.flatMap((node) => (node.operators || []).map(cleanApproverName)),
+  )
+  const tasks = uniqueList(pending.map((node) => node.taskName))
+  return {
+    approvers,
+    tasks,
+    currentNode: tasks[0] || '',
+  }
+}
 
 const money = (value) => {
   const n = Number(value)
@@ -286,13 +325,34 @@ function buildMeta(forms, pages) {
   }
 }
 
-export async function fetchListSnapshot(pages = LIST_PAGES) {
+function scopeMeta(forms, pages, scope, submittedWindow) {
+  return {
+    ...buildMeta(forms, pages),
+    ...submittedWindow,
+    scope,
+  }
+}
+
+export async function fetchListSnapshot(pages = LIST_PAGES, options = {}) {
   const rows = []
   let actualPages = 0
+  const requestParams = {}
+
+  if (options.submittedAtStart && options.submittedAtEnd) {
+    requestParams.submittedAtStart = options.submittedAtStart
+    requestParams.submittedAtEnd = options.submittedAtEnd
+  }
+  if (options.formStatus) {
+    requestParams.formStatus = options.formStatus
+  }
+  if (options.updatedAtStart && options.updatedAtEnd) {
+    requestParams.updatedAtStart = options.updatedAtStart
+    requestParams.updatedAtEnd = options.updatedAtEnd
+  }
 
   // 列表接口体积小，先取第一页确认还有下一页，再把剩余页按 4 个一批并发拉取。
   // 这样首屏不必等 5 次串行请求，同时仍低于每刻 10 次/秒的共享限流。
-  const first = await list({ pageNo: 1, pageSize: 100 })
+  const first = await list({ ...requestParams, pageNo: 1, pageSize: 100 })
   rows.push(...(first.list || []))
   actualPages = 1
 
@@ -301,7 +361,7 @@ export async function fetchListSnapshot(pages = LIST_PAGES) {
     for (let offset = 0; offset < remaining.length; offset += 4) {
       const chunk = remaining.slice(offset, offset + 4)
       const batch = await Promise.all(
-        chunk.map((pageNo) => list({ pageNo, pageSize: 100 })),
+        chunk.map((pageNo) => list({ ...requestParams, pageNo, pageSize: 100 })),
       )
       for (const data of batch) {
         rows.push(...(data.list || []))
@@ -318,16 +378,65 @@ export async function fetchListSnapshot(pages = LIST_PAGES) {
 }
 
 /**
- * 首页/看板数据：每次请求都实时读取，不使用磁盘快照。
- * 数据只在当前进程内短暂用于单据定位，不落盘。
+ * 按列表 tab 读取数据，默认固定最近 30 天提交时间。
+ *
+ * scope:
+ *   pending  — 待处理（APPROVING / AUDITING / SIGNING / SETTLEMENT）
+ *   all      — 全部状态
+ *   <STATUS> — 指定状态，点击对应 tab 时才请求
+ *
+ * 首次加载只请求 pending，其它状态由前端在点击 tab 时按需调用。
  */
-export async function getFreshForms() {
-  const live = await fetchListSnapshot(LIST_PAGES)
-  latestLiveForms = live
-  return {
-    meta: live.meta,
-    forms: live.forms,
+export async function fetchFormsByScope(scope = 'pending') {
+  const rawScope = String(scope || 'pending').trim()
+  const normalized = rawScope.toLowerCase()
+  const submittedWindow = getRecentSubmittedWindow()
+
+  if (normalized === 'pending') {
+    const results = await Promise.all(
+      PENDING_FORM_STATUSES.map((formStatus) =>
+        fetchListSnapshot(LIST_PAGES, { ...submittedWindow, formStatus }),
+      ),
+    )
+    const rows = results.flatMap((result) => result.forms)
+    const forms = [...new Map(rows.map((form) => [form.formCode, form])).values()].sort(
+      (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
+    )
+    const pages = results.reduce((sum, result) => sum + (result.meta.pages || 0), 0)
+    return {
+      meta: scopeMeta(forms, pages, 'pending', submittedWindow),
+      forms,
+    }
   }
+
+  if (normalized === 'all') {
+    const result = await fetchListSnapshot(LIST_PAGES, submittedWindow)
+    return {
+      meta: scopeMeta(result.forms, result.meta.pages, 'all', submittedWindow),
+      forms: result.forms,
+    }
+  }
+
+  const formStatus = rawScope.toUpperCase()
+  if (!ALLOWED_STATUSES.has(formStatus)) {
+    const error = new Error(`不支持的列表范围: ${scope}`)
+    error.statusCode = 400
+    throw error
+  }
+
+  const result = await fetchListSnapshot(LIST_PAGES, {
+    ...submittedWindow,
+    formStatus,
+  })
+  return {
+    meta: scopeMeta(result.forms, result.meta.pages, formStatus, submittedWindow),
+    forms: result.forms,
+  }
+}
+
+/** 首屏只加载默认的「待处理」数据。 */
+export async function getFreshForms() {
+  return fetchFormsByScope('pending')
 }
 
 export async function fetchDetailBundle(formCode, form) {
@@ -351,22 +460,71 @@ export async function fetchDetailBundle(formCode, form) {
 }
 
 export async function getFormDetail(formCode) {
-  let form = latestLiveForms?.forms.find((item) => item.formCode === formCode)
-  if (!form) {
-    // 直接访问详情 URL / 服务刚启动时，先实时取一次列表用于定位 formType。
-    const live = await fetchListSnapshot(LIST_PAGES)
-    latestLiveForms = live
-    form = live.forms.find((item) => item.formCode === formCode)
-  }
-
-  if (!form) {
+  // 服务端不维护业务缓存；浏览器侧负责详情持久化。
+  const data = await list({ formCodes: [formCode], pageNo: 1, pageSize: 10 })
+  const raw = data.list?.find((item) => item.formCode === formCode) || data.list?.[0]
+  if (!raw) {
     const error = new Error('未找到该单据')
     error.statusCode = 404
     throw error
   }
+  return fetchDetailBundle(formCode, normalizeForm(raw))
+}
 
-  // 不做本地缓存：每次打开详情都实时读取详情与完整审批流程。
-  return fetchDetailBundle(formCode, form)
+/**
+ * 基于 updatedAt 的增量变更查询。重叠 15 秒，避免请求边界漏数据。
+ */
+export async function fetchFormChanges(since) {
+  const now = Date.now()
+  const parsed = Number(since)
+  const sinceMs = Number.isFinite(parsed) && parsed > 0 ? parsed : now - 60000
+  const from = Math.max(0, sinceMs - 15000)
+  const submittedWindow = getRecentSubmittedWindow()
+
+  const result = await fetchListSnapshot(LIST_PAGES, {
+    ...submittedWindow,
+    updatedAtStart: from,
+    updatedAtEnd: now,
+  })
+
+  return {
+    forms: result.forms,
+    serverTime: new Date(now).toISOString(),
+    windowStart: from,
+    windowEnd: now,
+  }
+}
+
+/**
+ * 获取当前待处理审批人。服务端不做业务缓存，结果由浏览器 IndexedDB 维护。
+ * 并发 4，避免压满每刻接口。
+ */
+export async function getApproverIndex(formCodes = []) {
+  const codes = uniqueList(formCodes.map(String)).slice(0, 50)
+  const result = {}
+  const queue = [...codes]
+
+  async function worker() {
+    while (queue.length) {
+      const code = queue.shift()
+
+      try {
+        const flow = await processFlow(code, { formType: 'REIMBURSE' })
+        const info = pendingApproversFromLogs(normalizeLogs(flow))
+        result[code] = info
+      } catch (error) {
+        result[code] = {
+          approvers: [],
+          tasks: [],
+          currentNode: '',
+          error: error.message,
+        }
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(4, codes.length) }, () => worker()))
+  return result
 }
 
 export const paths = {

@@ -180,7 +180,10 @@ export function filterByType(forms, type) {
   return forms.filter((form) => form.formSubTypeName === type)
 }
 
-export function filterForms(forms, { status = 'ALL', department = 'ALL', query = '' } = {}) {
+export function filterForms(
+  forms,
+  { status = 'ALL', department = 'ALL', query = '' } = {},
+) {
   const keyword = String(query || '').trim().toLowerCase()
   return forms.filter((form) => {
     if (status === 'PENDING' && !isPending(form.formStatus)) return false

@@ -453,7 +453,14 @@ function InfoTab({ detail }) {
   )
 }
 
-export function DetailDrawer({ form, onClose, onToast }) {
+export function DetailDrawer({
+  form,
+  cachedDetail = null,
+  refreshToken = 0,
+  onDetailLoaded,
+  onClose,
+  onToast,
+}) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -470,6 +477,15 @@ export function DetailDrawer({ form, onClose, onToast }) {
     setDetail(null)
     setTab('expenses')
 
+    if (cachedDetail) {
+      setDetail(cachedDetail)
+      setLoading(false)
+      return () => {
+        mounted = false
+        controller.abort()
+      }
+    }
+
     fetch(`/api/forms/${encodeURIComponent(form.formCode)}`, { signal: controller.signal })
       .then(async (response) => {
         const body = await response.json().catch(() => ({}))
@@ -480,6 +496,7 @@ export function DetailDrawer({ form, onClose, onToast }) {
         if (!mounted) return
         setDetail(body)
         setLoading(false)
+        onDetailLoaded?.(body)
       })
       .catch((err) => {
         if (!mounted || err.name === 'AbortError') return
@@ -491,7 +508,7 @@ export function DetailDrawer({ form, onClose, onToast }) {
       mounted = false
       controller.abort()
     }
-  }, [form.formCode, retryKey])
+  }, [form.formCode, retryKey, refreshToken])
 
   useEffect(() => {
     closeRef.current?.focus()
@@ -636,7 +653,7 @@ export function DetailDrawer({ form, onClose, onToast }) {
         <footer className="drawer-footer">
           <span>
             <i className="footer-live-dot" />
-            每刻只读数据 · 实时读取
+            每刻只读数据 · IndexedDB 本地缓存
           </span>
           <button type="button" className="button button-ghost button-small" onClick={onClose}>
             关闭

@@ -2,13 +2,21 @@ import express from 'express'
 import path from 'node:path'
 import { access } from 'node:fs/promises'
 import process from 'node:process'
-import { getFormDetail, getFreshForms, paths } from './data.mjs'
+import {
+  fetchFormChanges,
+  fetchFormsByScope,
+  getApproverIndex,
+  getFormDetail,
+  getFreshForms,
+  paths,
+} from './data.mjs'
 
 const PORT = Number(process.env.PORT) || 3001
 const DIST = path.join(paths.root, 'dist')
 const app = express()
 
 app.disable('x-powered-by')
+app.use(express.json({ limit: '200kb' }))
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Referrer-Policy', 'same-origin')
@@ -24,7 +32,7 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/bootstrap', async (req, res) => {
   try {
-    // 每次都从每刻实时读取；不读取本地快照。
+    // 列表实时读取；浏览器侧负责 IndexedDB 持久化。
     const snapshot = await getFreshForms()
     res.json(snapshot)
   } catch (error) {
@@ -47,6 +55,44 @@ app.post('/api/refresh', async (req, res) => {
   } catch (error) {
     res.status(502).json({
       error: '同步失败',
+      message: error.message,
+    })
+  }
+})
+
+app.get('/api/forms/query', async (req, res) => {
+  try {
+    const scope = String(req.query.scope || 'pending')
+    const data = await fetchFormsByScope(scope)
+    res.json(data)
+  } catch (error) {
+    res.status(error.statusCode || 502).json({
+      error: '列表数据读取失败',
+      message: error.message,
+    })
+  }
+})
+
+app.get('/api/forms/changes', async (req, res) => {
+  try {
+    const data = await fetchFormChanges(req.query.since)
+    res.json(data)
+  } catch (error) {
+    res.status(502).json({
+      error: '增量同步失败',
+      message: error.message,
+    })
+  }
+})
+
+app.post('/api/approver-index', async (req, res) => {
+  try {
+    const codes = Array.isArray(req.body?.formCodes) ? req.body.formCodes : []
+    const index = await getApproverIndex(codes)
+    res.json({ index })
+  } catch (error) {
+    res.status(502).json({
+      error: '审批人索引读取失败',
       message: error.message,
     })
   }
@@ -97,7 +143,6 @@ app.get('*', async (req, res) => {
 const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  傲举财务 · 报销看板`)
   console.log(`  → http://127.0.0.1:${PORT}\n`)
-  console.log('  数据模式：实时读取每刻接口，不保存本地业务数据')
 })
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

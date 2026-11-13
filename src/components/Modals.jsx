@@ -204,7 +204,7 @@ export function DataModal({ meta, onClose }) {
             <strong>{formatRange(meta.periodStart, meta.periodEnd)}</strong>
           </div>
           <div>
-            <span>单据数量</span>
+            <span>当前范围</span>
             <strong>{meta.count.toLocaleString('zh-CN')} 笔</strong>
           </div>
           <div>
@@ -230,11 +230,23 @@ export function DataModal({ meta, onClose }) {
             </li>
             <li>
               <Icon name="check" size={14} />
-              列表与详情在每次打开时实时读取每刻，不使用本地业务数据快照。
+              单据页默认加载最近 30 天提交的待处理数据；列表、审批人索引和已打开详情持久化在浏览器 IndexedDB，刷新页面后可继续使用。
             </li>
             <li>
               <Icon name="check" size={14} />
-              打开详情会重新获取当前状态与完整审批流程，确保状态与每刻系统一致。
+              列表每 5 分钟按 updatedAt 做一次增量同步，只合并发生变化的单据；其它状态缓存会失效，下次点击时重新读取。
+            </li>
+            <li>
+              <Icon name="check" size={14} />
+              审批人筛选取自完整审批流程的当前待处理节点；审批人索引和已打开详情写入 IndexedDB，服务端不保存业务数据副本。
+            </li>
+            <li>
+              <Icon name="check" size={14} />
+              打开详情时优先复用 IndexedDB 中未变更的缓存，单据发生变化后只重新读取这一单的详情与流程。
+            </li>
+            <li>
+              <Icon name="check" size={14} />
+              持久化位置：浏览器 IndexedDB 数据库 <strong>augu-finance-dashboard</strong>；可在开发者工具 Application → IndexedDB 查看。
             </li>
             <li>
               <Icon name="check" size={14} />
@@ -267,7 +279,7 @@ export function DataModal({ meta, onClose }) {
         <div className="data-footnote">
           <Icon name="shield" size={15} />
           <p>
-            接口凭证只保存在本机服务端，业务数据只在请求期间经过内存。看板中的审批提示均为辅助信息，不构成财务审批结论。
+            接口凭证只保存在本机服务端；看板业务数据持久化在浏览器 IndexedDB，服务端不保存业务数据副本。看板中的审批提示均为辅助信息，不构成财务审批结论。
           </p>
         </div>
       </div>

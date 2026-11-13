@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Icon } from './Icons.jsx'
-import { getStatusMeta, getTypeMeta } from '../lib/data.js'
+import { TYPE_FILTERS, getStatusMeta, getTypeMeta } from '../lib/data.js'
 import {
   avatarStyle,
   formatMoney,
@@ -9,6 +9,13 @@ import {
 } from '../lib/format.js'
 
 const PAGE_SIZE = 10
+
+const STATUS_TABS = [
+  { key: 'PENDING', label: '待处理', color: '#D9A241' },
+  ...['APPROVING', 'COMPLETED', 'SETTLEMENT', 'REJECTED', 'DRAFT', 'ABANDON'].map(
+    (key) => ({ key, ...getStatusMeta(key) }),
+  ),
+]
 
 function buildPageItems(current, total) {
   if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1)
@@ -24,18 +31,20 @@ function buildPageItems(current, total) {
 
 export function FormsTable({
   forms,
-  totalForms,
+  loading = false,
+  loadingText = '正在加载当前状态的数据…',
   query,
   onQueryChange,
   statusFilter,
   statusCounts,
-  pendingCount = 0,
   onStatusChange,
-  departmentFilter,
-  departments,
-  onDepartmentChange,
-  sort,
-  onSortChange,
+  showApproverFilter = false,
+  approverFilter = 'ALL',
+  approverOptions = [],
+  onApproverChange,
+  approverDisabled = false,
+  typeFilter = 'ALL',
+  onTypeChange,
   page,
   onPageChange,
   onOpenForm,
@@ -53,16 +62,6 @@ export function FormsTable({
   const startItem = total ? (safePage - 1) * PAGE_SIZE + 1 : 0
   const endItem = Math.min(safePage * PAGE_SIZE, total)
   const pageItems = buildPageItems(safePage, totalPages)
-  const visibleStatuses = useMemo(() => {
-    const order = ['APPROVING', 'COMPLETED', 'SETTLEMENT', 'REJECTED', 'DRAFT', 'ABANDON']
-    const statuses = order
-      .map((key) => ({ key, ...getStatusMeta(key), count: statusCounts[key] || 0 }))
-      .filter((item) => item.count > 0)
-    if (pendingCount > 0) {
-      statuses.unshift({ key: 'PENDING', label: '待处理', color: '#D9A241', count: pendingCount })
-    }
-    return statuses
-  }, [statusCounts, pendingCount])
 
   return (
     <section className="table-panel">
@@ -99,36 +98,41 @@ export function FormsTable({
               </button>
             )}
           </label>
-          <label className="select-box select-box-dept">
-            <Icon name="building" size={15} />
+          <label className="select-box select-box-type">
+            <Icon name="receipt" size={15} />
             <select
-              value={departmentFilter}
-              onChange={(event) => onDepartmentChange(event.target.value)}
-              aria-label="按部门筛选"
+              value={typeFilter}
+              onChange={(event) => onTypeChange(event.target.value)}
+              aria-label="按单据类型筛选"
             >
-              <option value="ALL">全部部门</option>
-              {departments.map((department) => (
-                <option key={department} value={department}>
-                  {department}
+              {TYPE_FILTERS.map((filter) => (
+                <option key={filter.key} value={filter.key}>
+                  {filter.key === 'ALL' ? '全部类型' : filter.label}
                 </option>
               ))}
             </select>
             <Icon name="chevronDown" size={14} className="select-chevron" />
           </label>
-          <label className="select-box select-box-sort">
-            <Icon name="filterList" size={15} />
-            <select
-              value={sort}
-              onChange={(event) => onSortChange(event.target.value)}
-              aria-label="单据排序"
-            >
-              <option value="newest">最新提交</option>
-              <option value="oldest">等待最久</option>
-              <option value="amount-desc">金额 · 高到低</option>
-              <option value="amount-asc">金额 · 低到高</option>
-            </select>
-            <Icon name="chevronDown" size={14} className="select-chevron" />
-          </label>
+          {showApproverFilter && (
+            <label className="select-box select-box-approver">
+              <Icon name="user" size={15} />
+              <select
+                value={approverFilter}
+                onChange={(event) => onApproverChange(event.target.value)}
+                aria-label="按审批人筛选"
+                disabled={approverDisabled}
+              >
+                <option value="ALL">全部审批人</option>
+                {approverOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <Icon name="chevronDown" size={14} className="select-chevron" />
+            </label>
+          )}
+
         </div>
       </div>
 
@@ -139,9 +143,10 @@ export function FormsTable({
             className={`status-tab ${statusFilter === 'ALL' ? 'is-active' : ''}`}
             onClick={() => onStatusChange('ALL')}
           >
-            全部 <em>{totalForms}</em>
+            全部
+            {typeof statusCounts.ALL === 'number' && <em>{statusCounts.ALL}</em>}
           </button>
-          {visibleStatuses.map((status) => (
+          {STATUS_TABS.map((status) => (
             <button
               type="button"
               key={status.key}
@@ -149,15 +154,20 @@ export function FormsTable({
               onClick={() => onStatusChange(status.key)}
             >
               <i style={{ background: status.color }} />
-              {status.label} <em>{status.count}</em>
+              {status.label}
+              {typeof statusCounts[status.key] === 'number' && (
+                <em>{statusCounts[status.key]}</em>
+              )}
             </button>
           ))}
         </div>
         {hasFilters && (
-          <button type="button" className="reset-filters" onClick={onResetFilters}>
-            <Icon name="close" size={13} />
-            清除筛选
-          </button>
+          <div className="status-bar-end">
+            <button type="button" className="reset-filters" onClick={onResetFilters}>
+              <Icon name="close" size={13} />
+              重置筛选
+            </button>
+          </div>
         )}
       </div>
 
@@ -178,91 +188,104 @@ export function FormsTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((form) => {
-              const status = getStatusMeta(form.formStatus)
-              const type = getTypeMeta(form.formSubTypeName)
-              return (
-                <tr
-                  key={form.formCode}
-                  className="form-row"
-                  tabIndex={0}
-                  onClick={() => onOpenForm(form)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      onOpenForm(form)
-                    }
-                  }}
-                  aria-label={`查看单据 ${form.formCode}`}
-                >
-                  <td>
-                    <span className="form-code">{form.formCode}</span>
-                  </td>
-                  <td>
-                    <div className="person-cell">
-                      <span className="avatar" style={avatarStyle(form.coverEmployeeName)}>
-                        {initials(form.coverEmployeeName)}
-                      </span>
-                      <div>
-                        <strong>{form.coverEmployeeName}</strong>
-                        <span>{form.departmentName}</span>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="project-cell" title={form.formName}>
-                      {form.formName}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      className="type-badge"
-                      style={{ color: type.color, background: type.bg }}
-                    >
-                      <i style={{ background: type.color }} />
-                      {type.label}
-                    </span>
-                  </td>
-                  <td className="align-right">
-                    <span className="amount-cell">
-                      <span>¥</span>
-                      {formatMoney(form.baseAmount)}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`status-chip status-${status.tone}`}>
-                      <i style={{ background: status.color }} />
-                      {status.label}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="time-cell">{formatShortDateTime(form.submittedAt || form.createdAt)}</span>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="row-action"
-                      onClick={(event) => {
-                        event.stopPropagation()
+            {loading ? (
+              <tr className="table-loading-row">
+                <td colSpan={8}>
+                  <div className="table-loading" role="status">
+                    <span className="table-spinner" />
+                    {loadingText}
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              rows.map((form) => {
+                const status = getStatusMeta(form.formStatus)
+                const type = getTypeMeta(form.formSubTypeName)
+                return (
+                  <tr
+                    key={form.formCode}
+                    className="form-row"
+                    tabIndex={0}
+                    onClick={() => onOpenForm(form)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
                         onOpenForm(form)
-                      }}
-                      aria-label={`查看 ${form.formCode} 详情`}
-                    >
-                      <Icon name="arrowUpRight" size={15} />
-                    </button>
-                  </td>
-                </tr>
-              )
-            })}
+                      }
+                    }}
+                    aria-label={`查看单据 ${form.formCode}`}
+                  >
+                    <td>
+                      <span className="form-code">{form.formCode}</span>
+                    </td>
+                    <td>
+                      <div className="person-cell">
+                        <span className="avatar" style={avatarStyle(form.coverEmployeeName)}>
+                          {initials(form.coverEmployeeName)}
+                        </span>
+                        <div>
+                          <strong>{form.coverEmployeeName}</strong>
+                          <span>{form.departmentName}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="project-cell" title={form.formName}>
+                        {form.formName}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className="type-badge"
+                        style={{ color: type.color, background: type.bg }}
+                      >
+                        <i style={{ background: type.color }} />
+                        {type.label}
+                      </span>
+                    </td>
+                    <td className="align-right">
+                      <span className="amount-cell">
+                        <span>¥</span>
+                        {formatMoney(form.baseAmount)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`status-chip status-${status.tone}`}>
+                        <i style={{ background: status.color }} />
+                        {status.label}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="time-cell">
+                        {formatShortDateTime(form.submittedAt || form.createdAt)}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="row-action"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onOpenForm(form)
+                        }}
+                        aria-label={`查看 ${form.formCode} 详情`}
+                      >
+                        <Icon name="arrowUpRight" size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })
+            )}
           </tbody>
         </table>
-        {rows.length === 0 && (
+        {!loading && rows.length === 0 && (
           <div className="table-empty">
             <span className="empty-mark">
               <Icon name="search" size={24} />
             </span>
             <strong>没有找到匹配的单据</strong>
-            <p>试试调整搜索词、状态或部门筛选。</p>
+            <p>试试调整搜索词、状态、单据类型或审批人筛选。</p>
             <button type="button" className="button button-ghost button-small" onClick={onResetFilters}>
               清除筛选条件
             </button>
@@ -272,16 +295,19 @@ export function FormsTable({
 
       <div className="table-foot">
         <span className="table-range">
-          {total > 0 ? (
+          {loading ? (
+            '正在读取数据…'
+          ) : total > 0 ? (
             <>
               显示 <strong>{startItem}–{endItem}</strong>，共 {total.toLocaleString('zh-CN')} 条
             </>
           ) : (
             '共 0 条'
           )}
-          <em> · 每页 {PAGE_SIZE} 条</em>
+          {!loading && <em> · 每页 {PAGE_SIZE} 条</em>}
         </span>
-        <div className="pager">
+        {!loading && (
+          <div className="pager">
           <button
             type="button"
             className="pager-arrow"
@@ -317,7 +343,8 @@ export function FormsTable({
           >
             <Icon name="chevronRight" size={16} />
           </button>
-        </div>
+          </div>
+        )}
       </div>
     </section>
   )

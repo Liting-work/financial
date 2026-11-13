@@ -6362,3 +6362,75 @@ a {
     margin-left: 39px;
   }
 }
+
+.status-bar-end {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 1020px) {
+  .status-bar-end {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 760px) {
+  .status-bar-end {
+    gap: 7px;
+  }
+}
+
+/* ---------- lazy status loading ---------- */
+
+.table-loading-row td {
+  padding: 0 !important;
+  border-bottom: 1px solid #f0ede5 !important;
+}
+
+.table-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 320px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.table-spinner {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid #dfe5d8;
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ---------- approver filter ---------- */
+
+.select-box-approver select {
+  max-width: 94px;
+}
+
+.select-box-approver select:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.select-box-approver {
+  border-color: #e4e7dc;
+  background: #f8faf4;
+}
+
+.select-box-type select {
+  max-width: 94px;
+}
+
+.select-box-type {
+  border-color: #e4e7dc;
+  background: #f8faf4;
+}
