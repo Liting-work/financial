@@ -2,6 +2,8 @@
 
 通过 [`api/`](api/) 里的接口拉取每刻业务数据，对照 [`doc/01-费用报销标准.md`](doc/01-费用报销标准.md) 的规则做审批核对，核对结果按天写入 [`approve/`](approve/)。
 
+> **可视化看板**：仓库已加入 React + Webpack 数据看板，拆分为「数据总览 / 部门洞察 / 报销单据」三个独立页面。运行 `npm run dev`（开发）或 `npm run build && npm start`（生产）即可查看，完整说明见 [DASHBOARD.md](DASHBOARD.md)。
+
 ## 目录
 
 ```

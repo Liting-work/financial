@@ -11,6 +11,13 @@ Thumbs.db
 node_modules/
 *.log
 
+# 构建产物与本地调试残留
+dist/
+.npm-cache/
+.chrome-profile*/
+.shots/
+.cache/
+
 # 环境变量
 .env
 .env.*

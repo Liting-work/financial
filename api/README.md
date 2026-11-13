@@ -10,12 +10,15 @@ api/
 ├── list.mjs           接口1 报销单列表      POST /meike-finance/reimburse/list
 ├── detail.mjs         接口2 报销单详情      POST /meike-finance/reimburse/detail
 ├── expense.mjs        接口3 费用明细        POST /meike-finance/reimburse/expense-list
-├── process-log.mjs    接口4 审批流程        POST /meike-finance/reimburse/process-log
+├── process-log.mjs    接口4 审批流程（已处理） POST /meike-finance/reimburse/process-log
+├── process-flow.mjs   ★ 完整审批流程（已处理 / 待处理 / 预演）
 ├── loan.mjs           接口5 员工借款余额    POST /meike-finance/loan/employee-balance
 └── index.mjs          统一入口 + CLI
 ```
 
 每个接口文件顶部注释都包含：**入参说明**、**响应结构**、**实测坑位**。
+
+> `process-flow.mjs` 是一个补充读取接口：每刻官方 5 个代理接口里的审批流程只返回「已处理节点」；完整流程接口 `GET /api/openapi/process/logs/view/{formType}/{formCode}` 还能返回当前待处理与后续预演节点，看板详情页使用它。
 
 ## 命令行
 
@@ -59,7 +62,8 @@ import { loanBalance, loanTotal, loanCount } from './api/loan.mjs'
 | `list.mjs` | `list()` 单页、`iterForms()` 自动翻页、`STATUS` 状态枚举、`formAmount()` |
 | `detail.mjs` | `detail(formCode, flags)`、`expenses()`、`countInvoices()`、`SWITCHES` |
 | `expense.mjs` | `expenseList()`、`sumByType()` 按费用类型汇总 |
-| `process-log.mjs` | `processLog()`、`nodes()`、`toRows()`、`isFinished()` |
+| `process-log.mjs` | `processLog()`、`nodes()`、`toRows()`、`isFinished()`；仅返回已处理节点 |
+| `process-flow.mjs` | `processFlow()`、`flowNodes()`；返回完整流程（history / pending / predict），走网关通用只读代理 |
 | `loan.mjs` | `loanBalance()`、`loanBalanceAll()` 自动分批、`loanCount()` 笔数、`loanTotal()` 金额 |
 
 ## 实测坑位（已写进代码）

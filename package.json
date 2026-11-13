@@ -1,0 +1,30 @@
+{
+  "name": "ltmk-finance-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "每刻报销数据可视化看板 · React + Webpack",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c green,cyan \"node --watch server/index.mjs\" \"webpack serve --mode development\"",
+    "build": "webpack --mode production",
+    "start": "node server/index.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.27.1",
+    "@babel/preset-env": "^7.27.2",
+    "@babel/preset-react": "^7.27.1",
+    "babel-loader": "^10.0.0",
+    "concurrently": "^9.1.2",
+    "css-loader": "^7.1.2",
+    "html-webpack-plugin": "^5.6.3",
+    "style-loader": "^4.0.0",
+    "webpack": "^5.99.8",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.1"
+  }
+}
