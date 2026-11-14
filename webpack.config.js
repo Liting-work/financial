@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import HtmlWebpackPlugin from 'html-webpack-plugin'
+import { startupBanner } from './server/network.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -52,8 +53,11 @@ export default (env, argv) => {
     ],
     devtool: isProd ? false : 'eval-cheap-module-source-map',
     devServer: {
-      host: '127.0.0.1',
+      // 0.0.0.0 = 允许局域网内的同事用本机 IP 访问；仅本机调试可改回 127.0.0.1
+      host: '0.0.0.0',
       port: 5173,
+      // 用 IP 访问时 Host 头是 IP，默认校验会报 Invalid Host header
+      allowedHosts: 'all',
       hot: true,
       historyApiFallback: true,
       static: {
@@ -67,6 +71,16 @@ export default (env, argv) => {
       ],
       client: {
         overlay: { errors: true, warnings: false },
+      },
+      onListening(devServer) {
+        const port = devServer?.server?.address()?.port ?? 5173
+        console.log(
+          startupBanner({
+            title: '傲举财务 · 报销看板（开发）',
+            port,
+            hint: '同事用「同事访问」地址；页面内的 /api 会代理到本机 3001',
+          }),
+        )
       },
     },
     performance: {

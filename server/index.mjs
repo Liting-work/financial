@@ -10,8 +10,11 @@ import {
   getFreshForms,
   paths,
 } from './data.mjs'
+import { startupBanner } from './network.mjs'
 
 const PORT = Number(process.env.PORT) || 3001
+// 绑定 0.0.0.0 才能让同事通过局域网 IP 访问；只想本机用可设 HOST=127.0.0.1
+const HOST = process.env.HOST || '0.0.0.0'
 const DIST = path.join(paths.root, 'dist')
 const app = express()
 
@@ -140,9 +143,27 @@ app.get('*', async (req, res) => {
   }
 })
 
-const server = app.listen(PORT, '127.0.0.1', () => {
-  console.log(`\n  傲举财务 · 报销看板`)
-  console.log(`  → http://127.0.0.1:${PORT}\n`)
+const server = app.listen(PORT, HOST, () => {
+  console.log(
+    startupBanner({
+      title: '傲举财务 · 报销看板',
+      port: PORT,
+      hint:
+        HOST === '127.0.0.1'
+          ? '提示：HOST=127.0.0.1 时仅本机可访问，同事连不上'
+          : '把上面「同事访问」的地址发给他们即可；首次启动如被拦截，请在防火墙放行',
+    }),
+  )
+})
+
+// 端口被占用时给一句人话，别抛一屏栈把刚打印的 IP 冲掉
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`\n  端口 ${PORT} 已被占用，换一个再试：PORT=3100 npm start\n`)
+  } else {
+    console.error(`\n  启动失败：${error.message}\n`)
+  }
+  process.exit(1)
 })
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
